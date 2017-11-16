@@ -1,0 +1,30 @@
+1. counts of likert score across various question
+2. satisfaction level of across sub-domains calculate higher than average
+3. Describe non responder percent
+4. construct validity(factor analysis),Factor loading.
+5.divergent validity(item-scale correlation)
+5. Cronbach alpha, Test retest reliability
+6. Factors affecting patient score
+7. rodey scale
+
+
+A principal components analysis (PCA) was conducted on the 23 items with orthog-
+onal rotation (varimax). The Kaiser–Meyer–Olkin measure verified the sampling
+adequacy for the analysis KMO = .93 (‘superb’ according to Kaiser, 1974), and all
+KMO values for individual items were > .77, which is well above the acceptable
+limit of .5. Bartlett’s test of sphericity, χ2 (253) = 19,334, p < .001, indicated that
+correlations between items were sufficiently large for PCA. An initial analysis was
+run to obtain eigenvalues for each component in the data. Four components had
+eigenvalues over Kaiser’s criterion of 1 and in combination explained 50.32% of the
+variance. The scree plot was slightly ambiguous and showed inflexions that would
+justify retaining both two and four components. Given the large sample size, and
+the convergence of the scree plot and Kaiser’s criterion on four components, four
+components were retained in the final analysis. Table 17.1 shows the factor loadings
+after rotation. The items that cluster on the same components suggest that compo-
+nent 1 represents a fear of computers, component 2 a fear of statistics, component
+3 a fear of maths and component 4 peer evaluation concerns.
+
+
+
+
+

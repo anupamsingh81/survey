@@ -1,0 +1,395 @@
+---
+title: "Outpatient Survey Analysis"
+author: "Anupam kumar Singh, MD"
+date: "28 October 2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r,include=FALSE}
+library(Hmisc)
+library (MASS)
+
+library(tidyverse)
+library(strengejacke)
+library(ggjoy)
+library(e1071)
+
+kmo = function( data ){
+
+  library(MASS)
+  X <- cor(as.matrix(data))
+  iX <- ginv(X)
+  S2 <- diag(diag((iX^-1)))
+
+  AIS <- S2%*%iX%*%S2                      # anti-image covariance matrix
+  IS <- X+AIS-2*S2                         # image covariance matrix
+  Dai <- sqrt(diag(diag(AIS)))
+  IR <- ginv(Dai)%*%IS%*%ginv(Dai)         # image correlation matrix
+  AIR <- ginv(Dai)%*%AIS%*%ginv(Dai)       # anti-image correlation matrix
+
+  a <- apply((AIR - diag(diag(AIR)))^2, 2, sum)   
+  AA <- sum(a)
+  b <- apply((X - diag(nrow(X)))^2, 2, sum)   
+  BB <- sum(b)
+
+  MSA <- b/(b+a)                        # indiv. measures of sampling adequacy
+
+  AIR <- AIR-diag(nrow(AIR))+diag(MSA)  # Examine the anti-image of the
+                                        # correlation matrix. That is the
+                                        # negative of the partial correlations,
+                                        # partialling out all other variables.
+
+  kmo <- BB/(AA+BB)                     # overall KMO statistic
+
+  # Reporting the conclusion
+    if (kmo >= 0.00 && kmo < 0.50){
+      test <- 'The KMO test yields a degree of common variance unacceptable for FA.'
+
+} else if (kmo >= 0.50 && kmo < 0.60){
+      test <- 'The KMO test yields a degree of common variance miserable.'
+} else if (kmo >= 0.60 && kmo < 0.70){
+      test <- 'The KMO test yields a degree of common variance mediocre.'
+} else if (kmo >= 0.70 && kmo < 0.80){
+      test <- 'The KMO test yields a degree of common variance middling.'
+} else if (kmo >= 0.80 && kmo < 0.90){
+      test <- 'The KMO test yields a degree of common variance meritorious.'
+} else {
+
+      test <- 'The KMO test yields a degree of common variance marvelous.'     }
+
+    ans <- list( overall = kmo,
+
+                  report = test,
+                  individual = MSA,
+                  AIS = AIS,
+                  AIR = AIR )
+
+
+    return(ans)
+
+} # end of kmo() 
+
+colFmt = function(x,color){
+  outputFormat = opts_knit$get("rmarkdown.pandoc.to")
+  if(outputFormat == 'latex')
+    paste("\\textcolor{",color,"}{",x,"}",sep="")
+  else if(outputFormat == 'html')
+    paste("<font color='",color,"'>",x,"</font>",sep="")
+  else
+    x
+}
+library (dplyr)
+```
+
+The outpatient health survey was conducted to assess satisfaction levels of patients in our jhajjar outreach clinic. The questionaire was adapted from a pre-existing questionaire made of 23 questions with sub-domains evaluating  Interpersonal Skills, Physical Environment , Availability, Quality and Accessibility on a Likert scale. One question evaluated overall global satisfaction with physician. Our Goal in this study is to
+
+1. Assess Distribution of Scores across various questions.
+2. Assess Distribution of Scores across sub-domains.
+3. correlation of of age,education and income with mean score 
+4. Assess which sub-domain has highest score and conduct an Anova analysis.
+5. Evaluate how the various sub-domains affect via multiple linear regression.
+6. Assess if five domains distinguish themselves on confirmatory factor analysis.
+7. Test Divergent validity, cronbach alpha
+
+so lets get started
+
+### Assess Distribution of Scores across various questions
+
+```{r,eval=FALSE}
+jhar %>% dplyr::dplyr::select(one:Twenty.three) %>% gather(key="Question" ,value="Score") %>% group_by(Question,Score) %>% count()
+```
+
+```{r,echo=FALSE}
+library(Hmisc)
+library(tidyverse)
+```
+
+Let us see summary of scores 
+
+```{r}
+jhar6= read.csv("jhar6.csv")
+jharx= read.csv("jharx.csv")
+
+
+jhar= read.csv("jhar.csv")
+
+
+jhar %>% dplyr::select(one:Twenty.three) %>% summary()
+```
+
+
+Most of the questions have negative skew and bimodal peaks at 4 and 5 indicating high overall satisfaction. This is indicated by negative skew( Median score is 5 and higher than mean across all score) statistic calculated here .
+
+```{r}
+jhar %>% dplyr::select(one:Twenty.three) %>%map(~skewness(.))
+```
+
+Let us look at joy plot which indicate bimodal peaks at 4 and 5 indicating Very satisfied(5) or Satisfied patients(4).
+
+
+```{r,echo=FALSE}
+jhar %>% dplyr::select(one:Twenty.three) %>% gather(key="Question" ,value="Score") %>% ggplot(aes(x = Score, y = as.factor(Question),fill=Question)) + geom_joy()+
+  labs(x = "Score",y = "Questionss")
+```
+
+
+Let us look at percent of neutral/dissasatisfied responses across various questions 
+
+```{r}
+jhar %>% dplyr::select(one:Twenty.three) %>% gather(key="Question" ,value="Score") %>% group_by(Question) %>% summarise(Neutral_dissatisfied_percent = mean(Score<4)) %>% arrange(desc(Neutral_dissatisfied_percent))
+```
+
+So question 6,7,8,9,12 and 15 have neutral/dissatisfied reponses from greater than 10% of patients and we need to improve on these parameters.
+
+
+Let us see which questions have the highest percent of  very satisfied(5) score. 
+```{r}
+jhar %>% dplyr::select(one:Twenty.three) %>% gather(key="Question" ,value="Score") %>% group_by(Question) %>% summarise(very_satisfied_percent = mean(Score==5)) %>% arrange(desc(very_satisfied_percent))
+```
+
+So we are doing well on 1,2,3,4 and 17-22 questions and we need to maintain our performance in these areas.
+
+
+
+```{r,eval=FALSE}
+jhar6 %>% dplyr::select(one:Twenty.three) %>% sjp.likert(values = "hide")
+```
+
+Let us look at distribution of score across domains . First the visualisation
+
+```{r}
+jhar %>% dplyr::select(Accessibility,Quality,Physical_Environment,Interpersonal,Availability,MeanScore) %>% rename(Interpersonal_Skill = Interpersonal,Total_AverageScore=MeanScore) %>% gather("Parameter","Score",1:6) %>% ggplot(aes(x = Score, y = as.factor(Parameter),fill=Parameter)) + geom_joy()+
+  labs(x = "Score",y = "Domains")
+```
+
+Now statistics part
+```{r}
+jhar %>% dplyr::select(Accessibility,Quality,Physical_Environment,Interpersonal,Availability,MeanScore)  %>% summary()
+```
+
+
+
+## Is there any difference in scores across domains ? Are we scoring better on some domains and lagging on others ?
+
+We need to conduct an ANOVA test to see it..and Tukey's post Hoc correction to see intergroup differences
+
+```{r}
+df =jhar %>% dplyr::select(Accessibility,Quality,Physical_Environment,Interpersonal,Availability) %>% gather(key="Domains",value = "Score") 
+fitaov = aov(Score~Domains,data=df)
+summary(fitaov)
+```
+
+So on ANOVA we see that there is significant difference across Domain Scores. (p<0.00001). Now we need to determine post-hoc difference after adjusting for multiple comparison by Tukey's Method
+
+```{r}
+TukeyHSD(fitaov)
+```
+
+we see Quality and Interpersonal skills domains have significant higher scores than other domains like Availability,Accessibility and Physical Environment though there is not a statistically significant difference between Quality and Interpersonal Skills.
+
+## Correlation of Individual Domains with predictor variables like age,gender,Income,Education with individual Domain Scores and inter-Domain Correlation
+
+```{r}
+library(Hmisc)
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+
+df2 = jhar %>% dplyr::select(Age,Income,Occupation,Education,Accessibility,Quality,Physical_Environment,Interpersonal,Availability)
+res2<-rcorr(as.matrix(df2[,1:9]))
+flattenCorrMatrix(res2$r, round(res2$P,3)) %>% arrange(desc(p))
+
+
+```
+
+
+We see on an average higher age,Education,Income and Occupation category is linked to higher Domain score
+
+Let us plot a correlogram
+
+```{r}
+library(corrplot)
+df3 = jhar %>% dplyr::select(Age,Income,Occupation,Education,one:Twenty.three)
+M<-cor(df3)
+head(round(M,2))
+```
+
+```{r,eval=FALSE}
+corrplot(M, method="number")
+```
+
+```{r}
+cor.mtest <- function(mat, ...) {
+    mat <- as.matrix(mat)
+    n <- ncol(mat)
+    p.mat<- matrix(NA, n, n)
+    diag(p.mat) <- 0
+    for (i in 1:(n - 1)) {
+        for (j in (i + 1):n) {
+            tmp <- cor.test(mat[, i], mat[, j], ...)
+            p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+        }
+    }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+# matrix of the p-value of the correlation
+p.mat <- cor.mtest(df3)
+
+corrplot(M, type="upper", order="hclust", 
+         p.mat = p.mat, sig.level = 0.01, insig = "blank")
+
+
+```
+
+Now having visualised correlation plots and predictors affecting them , let's go to factors affecting mean score
+
+```{r,warning=FALSE,message=FALSE}
+library(arm)
+fit=lm(MeanScore~Interpersonal+Accessibility+Physical_Environment+Availability+Quality+Sex+Age+Income+Education,data=jhar6)
+
+summary(fit)
+```
+
+We see that after controlling for Domain average score, age ,occupation and Income,education dont impact mean score
+
+A cleaner output here 
+```{r}
+display(fit)
+```
+It implies that one point improvement in Quality will lead to 0.29 point improvement in mean score while controlling for other variables. Corresponding values for other domains are 0.22 for physical environment , 0.20 for Accessibility, 0.08 for Availability and 0.12 for Interpersonal skills other variables are non-significant. It implies Quality and Physical environment play a major role in affecting average score in our study
+
+Let us visualise the linear regression as forest plot to emphasise this impression.
+
+```{r}
+sjp.lm(fit)
+
+```
+
+### CONFIRMATORY FACTOR ANALYSIS
+
+Since this core was adapted from a score used in thailand outpatient set up . One of our goals is to evaluate construct validity and if the domains differentiate between each other to five domains
+
+```{r}
+library(psych)
+library(GPArotation)
+parallel <- fa.parallel(jharx, fm = 'minres', fa = 'fa')
+
+```
+
+The blue line shows eigenvalues of actual data and the two red lines (placed on top of each other) show simulated and resampled data. Here we look at the large drops in the actual data and spot the point where it levels off to the right. Also we locate the point of inflection – the point where the gap between simulated data and actual data tends to be minimum.
+
+Looking at this plot and parallel analysis, anywhere between 1 to 3 factors factors would be good choice instead of five proposed in original survey.
+
+
+In this case, we will dplyr::select oblique rotation (rotate = “oblimin”) as we believe that there is correlation in the factors. Note that Varimax rotation is used under the assumption that the factors are completely uncorrelated. We will use Ordinary Least Squared/Minres factoring (fm = “minres”), as it is known to provide results similar to Maximum Likelihood without assuming multivariate normal distribution and derives solutions through iterative eigendecomposition like principal axis.
+
+```{r,eval=FALSE}
+fivefactor <- fa(jharx,nfactors = 5,rotate = "oblimin",fm="minres")
+print(fivefactor)
+```
+
+```{r,eval=FALSE}
+sixfactor <- fa(jharx,nfactors = 6,rotate = "oblimin",fm="minres")
+print(sixfactor)
+```
+
+```{r,eval=FALSE}
+print(sixfactor$loadings,cutoff = 0.3)
+
+```
+
+```{r}
+jharm = as.matrix(jharx)
+cortest.bartlett(jharx)
+```
+
+
+
+For these data, Bartlett’s test is highly significant,chisquare(253) =5180, p < .00001, and therefore factor analysis is appropriate.
+
+
+```{r}
+ 
+km =kmo(jharx)
+
+list(km$overall,km$report,km$individual)
+
+```
+
+
+So Both KMO test and barlett test significant.
+
+
+```{r,eval=FALSE}
+pc2 <- principal(jharx, nfactors=length(jharx), rotate="none")
+pc2
+```
+
+```{r}
+pc3 <- principal(jharx, nfactors=5, rotate="oblimin")
+pc3
+```
+
+```{r}
+print.psych(pc3, cut = 0.3, sort = TRUE)
+```
+A principal components analysis (PCA) was conducted on the 23 items with orthog-onal rotation (varimax). The Kaiser–Meyer–Olkin measure verified the sampling adequacy for the analysis KMO = .93 (‘superb’ according to Kaiser, 1974), and all KMO values for individual items were > .77, which is well above the acceptablelimit of .5. Bartlett’s test of sphericity,chisquare(253)=19,334, p < .001, indicated that correlations between items were sufficiently large for PCA. An initial analysis wasrun to obtain eigenvalues for each component in the data. Four components hadeigenvalues over Kaiser’s criterion of 1 and in combination explained 61% of the variance. The scree plot was slightly ambiguous and showed inflexions that wouldjustify retaining both two and four components. Given the large sample size, and the convergence of the scree plot and Kaiser’s criterion on four components, five components were retained in the final analysis. Table shows the factor loadings after rotation. The items that cluster on the same components suggest that component 1 represents a fear Quality of Care, Component 2 represents  accessibility Component 3  represents environment , other domains are less clearly marked and there is a correlation and cross-talk between questions in domains.
+
+## Cronbach alpha
+
+
+Let us calculate cronbach alpha for each subscale
+
+```{r}
+Interpersonal = jhar %>% dplyr::select(one:Four)
+Accessibilty = jhar %>% dplyr::select(Five:Nine)
+physical_Environment = jhar %>% dplyr::select(Ten:Thirteen)
+Availability = jhar %>% dplyr::select(Fourteen:Fifteen)
+Quality = jhar %>% dplyr::select(Sixteen:Twenty.three)
+
+
+```
+
+Now let us run cronbach alpha test
+
+```{r}
+keys = c(1, 1, 1, 1, 1, 1, 1)
+summary(alpha(Interpersonal))$raw_alpha
+
+summary(alpha(Accessibilty))$raw_alpha
+summary(alpha(physical_Environment))$raw_alpha
+summary(alpha(Availability))$raw_alpha
+summary(alpha(Quality))$raw_alpha
+
+
+
+```
+
+The cronbach alpha for Interpersonal,Accesibilty,physical Environment , Avilability and Quality sub- scales are 0.79,0.68,0.81,0.66,0.91 respectively. Thus except for accessibility and availability subscales which had lower than 0.7 recommended limit of cronbach alpha,other subscales had nice reliability and correlation implying the accessibilty and availability subscales need to be worded more precisely for better reliability
+
+```{r,echo=FALSE}
+performance= data.frame(
+  
+Domains = c("Interpersonal","Accessibilty","physical_Environment","Availability","Quality"),
+test_retest_reliability = c(0.74,0.60,0.78,0.58,0.82),
+cronbach_alpha = c(0.79,0.68,0.81,0.66,0.91))
+performance
+```
+
+### KEY POINTS
+ 1. Overall Satisfaction levels in Questionnare is high
+2. Quality and Interpersonal subscales had high effect on mean score.
+ 3. Age, education,Income were positively correlated with satisfaction
+4. Confirmatory factor analysis explained sixty percent of variance , however not all sub-scales were perfectly delineated, in particular accessibility and availability sub-scale question need to be worded well to improve reliability and internal consistency.
+
+
+ 
